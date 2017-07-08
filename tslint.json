@@ -12,6 +12,7 @@
       true,
       128
     ],
+    "no-object-literal-type-assertion": false,
     "quotemark": [
       true,
       "single",
