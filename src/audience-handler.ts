@@ -147,9 +147,11 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
       return Promise.resolve(null);
     });
 
+  const baseUrlOffset = (sapi.baseUri) ? sapi.baseUri.length : 0;
+
   function jwtAudienceHandler(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.get(options.authHeader || 'Authorization');
-    const reqAuth = !isExcludedRoute(options, req, res);
+    const reqAuth = !isExcludedRoute(options, baseUrlOffset, req, res);
 
     if (!authHeader && reqAuth) {
       sendUnauthorized(options, req, res, next);
@@ -237,13 +239,14 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
   };
 }
 
-function isExcludedRoute(options, req: Request, res: Response) {
+function isExcludedRoute(options, baseUrlOffset: number, req: Request, res: Response) {
 
   if (!options.excludedRoutes) {
     return false;
   }
-  const path = req.originalUrl.split('?')[0];
 
+  const path = req.originalUrl.split('?')[0].substring(baseUrlOffset);
+  
   let result = false;
   for (const regex of options.excludedRoutes) {
     if (regex instanceof RegExp) {
