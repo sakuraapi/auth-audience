@@ -1,9 +1,11 @@
-import {SakuraApi, SakuraApiModuleResult} from '@sakuraapi/api';
+import {SakuraApi, SakuraApiPluginResult} from '@sakuraapi/api';
 import {NextFunction, Request, Response} from 'express';
 import {verify} from 'jsonwebtoken';
 
 export type jsonBuilder = (req: Request, res: Response) => Promise<any>;
 export type jsonErrBuilder = (err: any, req: Request, res: Response) => Promise<any>;
+export type authorizedHandler = (jwtPayload: any, req: Request, res: Response) => Promise<any>;
+export type verifyErrorHandler = (err: Error, jwtPayload: any, req: Request, res: Response) => Promise<any>;
 
 export interface IAuthAudienceOptions {
   /**
@@ -16,7 +18,7 @@ export interface IAuthAudienceOptions {
    */
   authHeader?: string;
   /**
-   * The authentication scheme expected. For example, `Bearer`. Leave undefined if no authentication
+   * The authentication scheme expected. For example, `Bearer`. Set to empty string if no authentication
    * scheme is expected
    */
   authScheme?: string;
@@ -47,6 +49,21 @@ export interface IAuthAudienceOptions {
   nextOnError?: boolean;
 
   /**
+   * Called when the jwt token is successfully verified. If you provide this function, you are responsible for
+   * storing the `jwtPayload` in a way that's accessible by the rest of the handler chain. If not provided,
+   * the `jwtPayload` can be found on the Response object: `res.locals.jwt`.
+   */
+  onAuthorized?: authorizedHandler;
+
+  /**
+   * Called when there's a verification error (if defined). Allows you to intercept error handling for customization.
+   * If not provided, the status code [[unauthorizedStatusCode]] is sent by default. If it is provided, resolve
+   * the promise when done to prevent [[unauthorizedStatusCode]], otherwise, reject and [[unauthorizedStatusCode]]
+   * will be sent
+   */
+  onVerifyError?: verifyErrorHandler;
+
+  /**
    * The status code to return if there's an unexpected error (500 by default)
    */
   serverErrorStatusCode?: number;
@@ -67,7 +84,7 @@ export interface IAuthAudienceOptions {
   unauthorizedJson?: jsonBuilder;
 }
 
-function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): SakuraApiModuleResult {
+export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): SakuraApiPluginResult {
   options = options || {} as IAuthAudienceOptions;
 
   options.audience = options.audience
@@ -75,7 +92,8 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     || undefined;
 
   options.authHeader = options.authHeader || 'Authorization';
-  options.authScheme = options.authScheme || 'Bearer';
+
+  options.authScheme = (options.authScheme === '') ? '' : options.authScheme || 'Bearer';
 
   options.issuer = options.issuer
     || ((sapi.config.authentication || {} as any).jwt || {} as any).issuer
@@ -90,6 +108,11 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     || (((sapi.config || {} as any).authentication || {} as any).jwt || {} as any).key
     || '';
 
+  options.onAuthorized = options.onAuthorized || ((payload, req, res) => {
+      res.locals.jwt = payload;
+      return Promise.resolve();
+    });
+
   options.serverErrorStatusCode = options.serverErrorStatusCode || 500;
   options.serverErrorJson = options.serverErrorJson || (() => {
       return Promise.resolve(null);
@@ -101,8 +124,6 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     });
 
   function jwtAudienceHandler(req: Request, res: Response, next: NextFunction) {
-    const body = req.body || {};
-
     const authHeader = req.get(options.authHeader || 'Authorization');
 
     if (!authHeader) {
@@ -113,7 +134,7 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     const authHeaderParts = authHeader.split(' ');
     let token;
 
-    if (authHeaderParts.length === 1) {
+    if (options.authScheme === '' || authHeaderParts.length === 1) {
       // no auth scheme
 
       if (authHeader === options.authScheme) {
@@ -126,7 +147,7 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     } else if (authHeaderParts.length === 2) {
       // with auth scheme
 
-      if (authHeaderParts[0].toLowerCase() !== options.authScheme) {
+      if (authHeaderParts[0].toLowerCase() !== options.authScheme.toLowerCase()) {
         // auth scheme doesn't match expected
         sendUnauthorized(options, req, res, next);
         return;
@@ -142,25 +163,44 @@ function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): Sakura
     new Promise(
       (resolve, reject) => {
         verify(token, options.key, options.jwtVerifyOptions, (err, decoded) => {
-          (err) ? reject(err) : resolve(decoded);
+          (err)
+            ? reject(err)
+            : resolve(decoded);
         });
       })
       .then((payload) => {
-        res.locals.jwt = payload;
-        next();
+        options
+          .onAuthorized(payload, req, res)
+          .then(() => next())
+          .catch((err) => {
+            options
+              .serverErrorJson(err, req, res)
+              .then((errJson) => {
+                res
+                  .status(options.serverErrorStatusCode)
+                  .json(errJson);
+                if (options.nextOnError) {
+                  next(errJson);
+                }
+              });
+          });
       })
-      .catch(() => {
-        sendUnauthorized(options, req, res, next);
+      .catch((err) => {
+        if (options.onVerifyError) {
+          options
+            .onVerifyError(err, token, req, res)
+            .then(() => next())
+            .catch(() => {
+              sendUnauthorized(options, req, res, next);
+            });
+        } else {
+          sendUnauthorized(options, req, res, next);
+        }
       });
   }
 
   return {
-    // TODO needs to be added to SakuraApi
-    // beforeHandlers: [
-    //   jwtAudienceHandler
-    // ],
-    models: [],
-    routables: []
+    middlewareHandlers: [jwtAudienceHandler]
   };
 }
 
