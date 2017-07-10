@@ -24,7 +24,8 @@
         "multiline": "never",
         "singleline": "never"
       }
-    ]
+    ],
+    "prefer-object-spread": false
   },
   "jsRules": {
     "curly": true
