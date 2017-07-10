@@ -25,7 +25,8 @@
         "singleline": "never"
       }
     ],
-    "prefer-object-spread": false
+    "prefer-object-spread": false,
+    "no-consecutive-blank-lines": false
   },
   "jsRules": {
     "curly": true
