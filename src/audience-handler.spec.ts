@@ -131,4 +131,107 @@ describe('jwtAudienceHandler', () => {
       .then(done)
       .catch(done.fail);
   });
+
+  describe('does not return 401 for excluded routes', () => {
+    const opt = Object.assign({
+      excludedRoutes: [
+        /^\/$/,
+        {
+          regex: /^\/test1$/
+        },
+        {
+          method: {POST: true},
+          regex: /^\/test2$/
+        }
+      ]
+    }, options);
+    const app = express();
+    const plugin = addAuthAudience(mockSapi, opt);
+    app.use(plugin.middlewareHandlers[0]);
+    app.all('*', (req, res, next) => {
+      res
+        .status(200)
+        .json({jwt: res.locals.jwt || 'not-defined'});
+      next();
+    });
+
+    it('routes not excluded still require auth', (done) => {
+      request(app)
+        .get('/secure_route')
+        .expect(401)
+        .then(done)
+        .catch(done.fail);
+    });
+
+
+    it('does not include the query as part of the route being evaluated', (done) => {
+      request(app)
+        .get('/?queryParam="a"')
+        .expect(200)
+        .then((response) => {
+          expect(response.body.jwt).toBe('not-defined');
+        })
+        .then(done)
+        .catch(done.fail);
+    });
+
+    it('simple route', (done) => {
+      request(app)
+        .get('/')
+        .expect(200)
+        .then((response) => {
+          expect(response.body.jwt).toBe('not-defined');
+        })
+        .then(done)
+        .catch(done.fail);
+    });
+
+    it('exclude route with RouteExclusion with just Regex', (done) => {
+      request(app)
+        .get('/test1')
+        .expect(200)
+        .then((response) => {
+          expect(response.body.jwt).toBe('not-defined');
+        })
+        .then(done)
+        .catch(done.fail);
+    });
+
+    it('exclude route with RouteExclusion with Regex and Method', (done) => {
+      request(app)
+        .post('/test2')
+        .expect(200)
+        .then((response) => {
+          expect(response.body.jwt).toBe('not-defined');
+        })
+        .then(done)
+        .catch(done.fail);
+    });
+
+    it('does not exclude route with RouteExclusion with matching Regex and not matching Method', (done) => {
+      request(app)
+        .get('/test2')
+        .expect(401)
+        .then(done)
+        .catch(done.fail);
+    });
+
+    it('injects the token for routes not requiring auth when the token is present', (done) => {
+      const token = sign({
+        aud: options.audience,
+        iss: options.issuer,
+        tokenInjected: true
+      }, options.key);
+
+      request(app)
+        .post('/test2')
+        .set('Authorization', `${token}`)
+        .expect(200)
+        .then((response) => {
+          expect(response.body.jwt.tokenInjected).toBeTruthy();
+        })
+        .then(done)
+        .catch(done.fail);
+    });
+  });
 });
