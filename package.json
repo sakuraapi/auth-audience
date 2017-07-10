@@ -1,6 +1,6 @@
 {
   "name": "@sakuraapi/auth-audience",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Middleware to support JWT audience role for SakuraApi servers",
   "main": "lib/index.js",
   "types": "lib/index.d.js",

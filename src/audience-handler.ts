@@ -7,6 +7,23 @@ export type jsonErrBuilder = (err: any, req: Request, res: Response) => Promise<
 export type authorizedHandler = (jwtPayload: any, req: Request, res: Response) => Promise<any>;
 export type verifyErrorHandler = (err: Error, jwtPayload: any, req: Request, res: Response) => Promise<any>;
 
+/**
+ * Allows [[IAuthAudienceOptions.routeExclusion]] to be narrowed to specific HTTP methods.
+ * For example:
+ * <pre>
+ *     routeExclusion = [
+ *        {
+ *          method: 'get',
+ *          regex: /^\/user/
+ *        }
+ *     ]
+ * </pre>
+ */
+export interface IRouteExclusion {
+  method?: { [key: string]: boolean };
+  regex: RegExp;
+}
+
 export interface IAuthAudienceOptions {
   /**
    * The expected audience to verify; Leave undefined to not check
@@ -22,6 +39,13 @@ export interface IAuthAudienceOptions {
    * scheme is expected
    */
   authScheme?: string;
+
+  /**
+   * Defines a list of routes that will not return a `serverErrorStatusCode`. If a JWT is present, it will still be
+   * added. The array can be a combination of Regular Expressions or [[RouteExclusion]]. [[RouteExclusion]] allows
+   * you to further narrow the match to specific HTTP methods.
+   */
+  excludedRoutes?: IRouteExclusion[] | RegExp[];
 
   /**
    * The issuer expected; Leave undefined to not check
@@ -125,19 +149,21 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
 
   function jwtAudienceHandler(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.get(options.authHeader || 'Authorization');
+    const reqAuth = !isExcludedRoute(options, req, res);
 
-    if (!authHeader) {
+    if (!authHeader && reqAuth) {
       sendUnauthorized(options, req, res, next);
       return;
     }
 
-    const authHeaderParts = authHeader.split(' ');
-    let token;
+    const authHeaderParts = (authHeader)
+      ? authHeader.split(' ')
+      : [];
 
+    let token;
     if (options.authScheme === '' || authHeaderParts.length === 1) {
       // no auth scheme
-
-      if (authHeader === options.authScheme) {
+      if (authHeader === options.authScheme && reqAuth) {
         // auth scheme was provided with no token
         sendUnauthorized(options, req, res, next);
         return;
@@ -147,7 +173,7 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
     } else if (authHeaderParts.length === 2) {
       // with auth scheme
 
-      if (authHeaderParts[0].toLowerCase() !== options.authScheme.toLowerCase()) {
+      if (authHeaderParts[0].toLowerCase() !== options.authScheme.toLowerCase() && reqAuth) {
         // auth scheme doesn't match expected
         sendUnauthorized(options, req, res, next);
         return;
@@ -156,16 +182,18 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
       token = authHeaderParts[1];
     } else {
       // auth header has unexpected content
-      sendUnauthorized(options, req, res, next);
-      return;
+      if (reqAuth) {
+        sendUnauthorized(options, req, res, next);
+        return;
+      }
     }
 
     new Promise(
       (resolve, reject) => {
-        verify(token, options.key, options.jwtVerifyOptions, (err, decoded) => {
-          (err)
+        verify(token, options.key, options.jwtVerifyOptions, (err, payload) => {
+          (err && reqAuth)
             ? reject(err)
-            : resolve(decoded);
+            : resolve(payload);
         });
       })
       .then((payload) => {
@@ -181,6 +209,11 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
                   .json(errJson);
                 if (options.nextOnError) {
                   next(errJson);
+                }
+              })
+              .catch((unexpectedError) => {
+                if (options.nextOnError) {
+                  next(unexpectedError);
                 }
               });
           });
@@ -204,6 +237,35 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
   };
 }
 
+function isExcludedRoute(options, req: Request, res: Response) {
+
+  if (!options.excludedRoutes) {
+    return false;
+  }
+  const path = req.originalUrl.split('?')[0];
+
+  let result = false;
+  for (const regex of options.excludedRoutes) {
+    if (regex instanceof RegExp) {
+      if (regex.test(path)) {
+        result = true;
+        break;
+      }
+      continue;
+    }
+
+    if (!regex.method || (regex.method[req.method])) {
+      if (regex.regex.test(path)) {
+        result = true;
+        break;
+      }
+      continue;
+    }
+  }
+
+  return result;
+}
+
 function sendUnauthorized(options, req, res, next) {
   options
     .unauthorizedJson(req, res)
@@ -214,7 +276,6 @@ function sendUnauthorized(options, req, res, next) {
       if (options.nextOnError) {
         next();
       }
-
     })
     .catch((err) => {
       options
