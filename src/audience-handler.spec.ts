@@ -233,5 +233,47 @@ describe('jwtAudienceHandler', () => {
         .then(done)
         .catch(done.fail);
     });
+
+    describe('baseUri', () => {
+
+      const opt = Object.assign({
+        excludedRoutes: [
+          /^\/$/
+        ]
+      }, options);
+
+      const mockSapiBaseUri = Object.assign({
+        baseUri: '/testApi'
+      }, mockSapi);
+
+      const app = express();
+      const plugin = addAuthAudience(mockSapiBaseUri, opt);
+      app.use(plugin.middlewareHandlers[0]);
+      app.all('*', (req, res, next) => {
+        res
+          .status(200)
+          .json({jwt: res.locals.jwt || 'not-defined'});
+        next();
+      });
+
+      it('strips the base url before processing exclusions', (done) => {
+        request(app)
+          .get('/testApi/')
+          .expect(200)
+          .then((response) => {
+            expect(response.body.jwt).toBe('not-defined');
+          })
+          .then(done)
+          .catch(done.fail);
+      });
+
+      it('sanity check to make sure it is still failing properly', (done) => {
+        request(app)
+          .get('/')
+          .expect(401)
+          .then(done)
+          .catch(done.fail);
+      });
+    });
   });
 });
