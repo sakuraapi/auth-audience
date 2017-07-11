@@ -258,7 +258,7 @@ describe('jwtAudienceHandler', () => {
 
       it('strips the base url before processing exclusions', (done) => {
         request(app)
-          .get('/testApi/')
+          .get('/')
           .expect(200)
           .then((response) => {
             expect(response.body.jwt).toBe('not-defined');
@@ -269,7 +269,7 @@ describe('jwtAudienceHandler', () => {
 
       it('sanity check to make sure it is still failing properly', (done) => {
         request(app)
-          .get('/')
+          .get('/shouldNotWork')
           .expect(401)
           .then(done)
           .catch(done.fail);
