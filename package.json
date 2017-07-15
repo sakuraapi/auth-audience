@@ -1,6 +1,6 @@
 {
   "name": "@sakuraapi/auth-audience",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Middleware to support JWT audience role for SakuraApi servers",
   "main": "lib/index.js",
   "types": "lib/index.d.js",
@@ -64,7 +64,7 @@
     "typescript": "^2.3.4"
   },
   "dependencies": {
-    "@sakuraapi/api": "0.7.0-6",
+    "@sakuraapi/api": "0.7.0-7",
     "colors": "^1.1.2",
     "jsonwebtoken": "^7.4.1",
     "urlsafe-base64": "^1.0.0",
