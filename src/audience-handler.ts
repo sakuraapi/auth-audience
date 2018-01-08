@@ -108,7 +108,7 @@ export interface IAuthAudienceOptions {
 }
 
 @AuthenticatorPlugin()
-export class AuthAudience implements IAuthenticator {
+export class AuthAudience implements IAuthenticator, IAuthenticatorConstructor {
 
   constructor(private authenticators: AuthenticationHandler[]) {
   }
