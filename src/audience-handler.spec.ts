@@ -1,7 +1,18 @@
-import * as express from 'express';
-import {sign} from 'jsonwebtoken';
-import * as request from 'supertest';
-import {addAuthAudience, IAuthAudienceOptions} from './audience-handler';
+// tslint:disable:no-duplicate-imports
+import {IAuthenticator} from '@sakuraapi/api';
+import * as express     from 'express';
+import {
+  NextFunction,
+  Request,
+  Response
+}                       from 'express';
+import {sign}           from 'jsonwebtoken';
+import * as request     from 'supertest';
+import {
+  addAuthAudience,
+  IAuthAudienceOptions
+}                       from './audience-handler';
+// tslint:enable:no-duplicate-imports
 
 describe('jwtAudienceHandler', () => {
 
@@ -15,30 +26,53 @@ describe('jwtAudienceHandler', () => {
     key: '1234'
   };
 
-  it('returns unauthorized without a valid token', (done) => {
+  function getMockHandler(authAudience: IAuthenticator) {
+    return async (req: Request, res: Response, next: NextFunction) => {
+
+      const result = await authAudience.authenticate.bind(authAudience)(req, res);
+
+      if (!result.success) {
+        return res.status(result.status).send(result.data || undefined);
+      }
+      next();
+
+    };
+  }
+
+  function setupTestApp(opt?: any) {
+    opt = opt || {};
+    opt = Object.assign(opt, options);
+
     const app = express();
-    const plugin = addAuthAudience(mockSapi, options);
-    app.use(plugin.middlewareHandlers[0]);
+
+    const authAudience: IAuthenticator = addAuthAudience(mockSapi, opt).authenticators[0];
+
+    app.use(getMockHandler((authAudience)));
     app.get('*', (req, res, next) => {
-      res.status(200).json({});
+      res.status(200).json({
+        fallthrough: true,
+        jwt: res.locals.jwt
+      });
       next();
     });
 
-    request(app)
+    return app;
+  }
+
+  it('returns 400 without a valid token', async (done) => {
+
+    const result = await request(setupTestApp())
       .get('/')
-      .expect(401)
-      .then(done)
+      .expect(400)
       .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
+    done();
   });
 
-  it('returns unauthorized when expired', (done) => {
-    const app = express();
-    const plugin = addAuthAudience(mockSapi, options);
-    app.use(plugin.middlewareHandlers[0]);
-    app.get('*', (req, res, next) => {
-      res.status(200).json({});
-      next();
-    });
+  it('returns 401 when expired', async (done) => {
 
     const token = sign({
       aud: options.audience,
@@ -46,234 +80,81 @@ describe('jwtAudienceHandler', () => {
       iss: options.issuer
     }, options.key);
 
-    request(app)
+    const result = await request(setupTestApp())
       .get('/')
       .set('Authorization', `Bearer ${token}`)
       .expect(401)
-      .then(done)
       .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
+    done();
   });
 
-  it('returns 401 when the auth scheme does not match', (done) => {
-    const app = express();
-    const plugin = addAuthAudience(mockSapi, options);
-    app.use(plugin.middlewareHandlers[0]);
-    app.get('*', (req, res, next) => {
-      res
-        .status(200)
-        .json({jwt: res.locals.jwt});
-      next();
-    });
-
+  it('returns 400 when the auth scheme does not match', async (done) => {
     const token = sign({
       aud: options.audience,
       iss: options.issuer,
       tokenInjected: true
     }, options.key);
 
-    request(app)
+    const result = await request(setupTestApp())
       .get('/')
       .set('Authorization', `JWT ${token}`)
-      .expect(401)
-      .then(done)
+      .expect(400)
       .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
+    done();
   });
 
-  it('injects jtw token into res.locals.jwt by default when valid auth', (done) => {
-    const app = express();
-    const plugin = addAuthAudience(mockSapi, options);
-    app.use(plugin.middlewareHandlers[0]);
-    app.get('*', (req, res, next) => {
-      res
-        .status(200)
-        .json({jwt: res.locals.jwt});
-      next();
-    });
+  it('injects jtw token into res.locals.jwt by default when valid auth', async (done) => {
 
-    const token = sign({
+    const payload = {
       aud: options.audience,
       iss: options.issuer,
       tokenInjected: true
-    }, options.key);
+    };
+    const token = sign(payload, options.key);
 
-    request(app)
+    const result = await request(setupTestApp())
       .get('/')
       .set('Authorization', `Bearer ${token}`)
       .expect(200)
-      .then((response) => expect(response.body.jwt.tokenInjected).toBeTruthy())
-      .then(done)
       .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.jwt.aud).toBe(payload.aud);
+    expect(body.jwt.iss).toBe(payload.iss);
+    expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
+
+    done();
   });
 
-  it('supports having no auth scheme set', (done) => {
-    const opt = Object.assign({authScheme: ''}, options);
-    const app = express();
-    const plugin = addAuthAudience(mockSapi, opt);
-    app.use(plugin.middlewareHandlers[0]);
-    app.get('*', (req, res, next) => {
-      res
-        .status(200)
-        .json({jwt: res.locals.jwt});
-      next();
-    });
+  it('supports having no auth scheme set', async (done) => {
 
-    const token = sign({
+    const payload = {
       aud: options.audience,
       iss: options.issuer,
       tokenInjected: true
-    }, options.key);
+    };
+    const token = sign(payload, options.key);
 
-    request(app)
+    const result = await request(setupTestApp({authScheme: ''}))
       .get('/')
       .set('Authorization', `${token}`)
       .expect(200)
-      .then((response) => expect(response.body.jwt.tokenInjected).toBeTruthy())
-      .then(done)
       .catch(done.fail);
-  });
 
-  describe('does not return 401 for excluded routes', () => {
-    const opt = Object.assign({
-      excludedRoutes: [
-        /^\/$/,
-        {
-          regex: /^\/test1$/
-        },
-        {
-          method: {POST: true},
-          regex: /^\/test2$/
-        }
-      ]
-    }, options);
-    const app = express();
-    const plugin = addAuthAudience(mockSapi, opt);
-    app.use(plugin.middlewareHandlers[0]);
-    app.all('*', (req, res, next) => {
-      res
-        .status(200)
-        .json({jwt: res.locals.jwt || 'not-defined'});
-      next();
-    });
+    const body = (result as any).body;
 
-    it('routes not excluded still require auth', (done) => {
-      request(app)
-        .get('/secure_route')
-        .expect(401)
-        .then(done)
-        .catch(done.fail);
-    });
-
-
-    it('does not include the query as part of the route being evaluated', (done) => {
-      request(app)
-        .get('/?queryParam="a"')
-        .expect(200)
-        .then((response) => {
-          expect(response.body.jwt).toBe('not-defined');
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-
-    it('simple route', (done) => {
-      request(app)
-        .get('/')
-        .expect(200)
-        .then((response) => {
-          expect(response.body.jwt).toBe('not-defined');
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-
-    it('exclude route with RouteExclusion with just Regex', (done) => {
-      request(app)
-        .get('/test1')
-        .expect(200)
-        .then((response) => {
-          expect(response.body.jwt).toBe('not-defined');
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-
-    it('exclude route with RouteExclusion with Regex and Method', (done) => {
-      request(app)
-        .post('/test2')
-        .expect(200)
-        .then((response) => {
-          expect(response.body.jwt).toBe('not-defined');
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-
-    it('does not exclude route with RouteExclusion with matching Regex and not matching Method', (done) => {
-      request(app)
-        .get('/test2')
-        .expect(401)
-        .then(done)
-        .catch(done.fail);
-    });
-
-    it('injects the token for routes not requiring auth when the token is present', (done) => {
-      const token = sign({
-        aud: options.audience,
-        iss: options.issuer,
-        tokenInjected: true
-      }, options.key);
-
-      request(app)
-        .post('/test2')
-        .set('Authorization', `${token}`)
-        .expect(200)
-        .then((response) => {
-          expect(response.body.jwt.tokenInjected).toBeTruthy();
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-
-    describe('baseUri', () => {
-
-      const opt = Object.assign({
-        excludedRoutes: [
-          /^\/$/
-        ]
-      }, options);
-
-      const mockSapiBaseUri = Object.assign({
-        baseUri: '/testApi'
-      }, mockSapi);
-
-      const app = express();
-      const plugin = addAuthAudience(mockSapiBaseUri, opt);
-      app.use(plugin.middlewareHandlers[0]);
-      app.all('*', (req, res, next) => {
-        res
-          .status(200)
-          .json({jwt: res.locals.jwt || 'not-defined'});
-        next();
-      });
-
-      it('strips the base url before processing exclusions', (done) => {
-        request(app)
-          .get('/')
-          .expect(200)
-          .then((response) => {
-            expect(response.body.jwt).toBe('not-defined');
-          })
-          .then(done)
-          .catch(done.fail);
-      });
-
-      it('sanity check to make sure it is still failing properly', (done) => {
-        request(app)
-          .get('/shouldNotWork')
-          .expect(401)
-          .then(done)
-          .catch(done.fail);
-      });
-    });
+    expect(body.jwt.aud).toBe(payload.aud);
+    expect(body.jwt.iss).toBe(payload.iss);
+    expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
+    done();
   });
 });

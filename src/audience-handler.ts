@@ -1,28 +1,22 @@
-import {SakuraApi, SakuraApiPluginResult} from '@sakuraapi/api';
-import {NextFunction, Request, Response} from 'express';
+import {
+  AuthenticationHandler,
+  AuthenticatorPlugin,
+  AuthenticatorPluginResult,
+  IAuthenticator,
+  IAuthenticatorConstructor,
+  SakuraApi,
+  SakuraApiPluginResult
+}               from '@sakuraapi/api';
+import {
+  Request,
+  Response
+}               from 'express';
 import {verify} from 'jsonwebtoken';
 
 export type jsonBuilder = (req: Request, res: Response) => Promise<any>;
 export type jsonErrBuilder = (err: any, req: Request, res: Response) => Promise<any>;
 export type authorizedHandler = (jwtPayload: any, req: Request, res: Response) => Promise<any>;
 export type verifyErrorHandler = (err: Error, jwtPayload: any, req: Request, res: Response) => Promise<any>;
-
-/**
- * Allows [[IAuthAudienceOptions.routeExclusion]] to be narrowed to specific HTTP methods.
- * For example:
- * <pre>
- *     routeExclusion = [
- *        {
- *          method: 'get',
- *          regex: /^\/user/
- *        }
- *     ]
- * </pre>
- */
-export interface IRouteExclusion {
-  method?: { [key: string]: boolean };
-  regex: RegExp;
-}
 
 export interface IAuthAudienceOptions {
   /**
@@ -39,13 +33,6 @@ export interface IAuthAudienceOptions {
    * scheme is expected
    */
   authScheme?: string;
-
-  /**
-   * Defines a list of routes that will not return a `serverErrorStatusCode`. If a JWT is present, it will still be
-   * added. The array can be a combination of Regular Expressions or [[RouteExclusion]]. [[RouteExclusion]] allows
-   * you to further narrow the match to specific HTTP methods.
-   */
-  excludedRoutes?: IRouteExclusion[] | RegExp[];
 
   /**
    * The issuer expected; Leave undefined to not check
@@ -66,13 +53,6 @@ export interface IAuthAudienceOptions {
   key?: string;
 
   /**
-   * False (default) to not call next() on when unauthorized. Set to true if you want the handler to callback
-   * and pass control to the next handler even if the jwt token doesn't authenticate. If true, the error object
-   * will be passed to next if there was an error.
-   */
-  nextOnError?: boolean;
-
-  /**
    * Called when the jwt token is successfully verified. If you provide this function, you are responsible for
    * storing the `jwtPayload` in a way that's accessible by the rest of the handler chain. If not provided,
    * the `jwtPayload` can be found on the Response object: `res.locals.jwt`.
@@ -81,9 +61,10 @@ export interface IAuthAudienceOptions {
 
   /**
    * Called when there's a verification error (if defined). Allows you to intercept error handling for customization.
-   * If not provided, the status code [[unauthorizedStatusCode]] is sent by default. If it is provided, resolve
-   * the promise when done to prevent [[unauthorizedStatusCode]], otherwise, reject and [[unauthorizedStatusCode]]
-   * will be sent
+   *
+   * [[IAuthAudienceOptions.unauthorizedStatusCode]] will be returned when verification of credentials fail.
+   *
+   * Return a the json object that is the body of the response.
    */
   onVerifyError?: verifyErrorHandler;
 
@@ -91,9 +72,12 @@ export interface IAuthAudienceOptions {
    * The status code to return if there's an unexpected error (500 by default)
    */
   serverErrorStatusCode?: number;
+
   /**
    * A function that generates a json object to return if there's a server error. If none is provided,
    * the server error response will not have a body.
+   *
+   * Return a the json object that is the body of the response.
    */
   serverErrorJson?: jsonErrBuilder;
 
@@ -101,11 +85,58 @@ export interface IAuthAudienceOptions {
    * The status code to return if the token is invalid (401 by default)
    */
   unauthorizedStatusCode?: number;
+
   /**
    * A function that generates a json object to return if the token is not authorized. If none is provided,
    * the server response will not have a body.
+   *
+   * Return a the json object that is the body of the response.
    */
   unauthorizedJson?: jsonBuilder;
+
+  /**
+   * The status code to return if the request is bad / malformed (400 by default)
+   */
+  badRequestStatusCode?: number;
+
+  /**
+   * A function that generates a json object to return if the request is bad / malformed. If none is provided,
+   * the server response will not have a body.
+   *
+   * Return a the json object that is the body of the response.
+   */
+  badRequestJson?: jsonErrBuilder;
+}
+
+@AuthenticatorPlugin()
+export class AuthAudience implements IAuthenticator, IAuthenticatorConstructor {
+
+  constructor(private authenticators: AuthenticationHandler[]) {
+  }
+
+  /**
+   * Attempts each of the AuthenticationHandlers. Upon success, return the result of the successful handler,
+   * otherwise, return the result of the first failure.
+   * @param req Express Request
+   * @param res Express Response
+   * @returns {Promise<AuthenticatorPluginResult>}
+   */
+  async authenticate(req, res): Promise<AuthenticatorPluginResult> {
+
+    let firstFailure: AuthenticatorPluginResult;
+
+    for (const auth of this.authenticators) {
+      const authAttempt = await auth(req, res);
+
+      if (authAttempt && !authAttempt.success && !firstFailure) {
+        firstFailure = authAttempt;
+      } else {
+        return authAttempt;
+      }
+    }
+
+    return firstFailure;
+  }
 }
 
 export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): SakuraApiPluginResult {
@@ -124,172 +155,139 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
     || undefined;
 
   options.jwtVerifyOptions = options.jwtVerifyOptions || {
-      audience: options.audience,
-      issuer: options.issuer
-    };
+    audience: options.audience,
+    issuer: options.issuer
+  };
 
   options.key = options.key
     || (((sapi.config || {} as any).authentication || {} as any).jwt || {} as any).key
     || '';
 
-  options.onAuthorized = options.onAuthorized || ((payload, req, res) => {
-      res.locals.jwt = payload;
-      return Promise.resolve();
-    });
+  options.onAuthorized = options.onAuthorized || (async (payload, req, res) => {
+    res.locals.jwt = payload;
+  });
+
+  options.onVerifyError = options.onVerifyError || (async (err, token, req, res) => {
+    return null;
+  });
 
   options.serverErrorStatusCode = options.serverErrorStatusCode || 500;
-  options.serverErrorJson = options.serverErrorJson || (() => {
-      return Promise.resolve(null);
-    });
+  options.serverErrorJson = options.serverErrorJson || (async () => {
+    return null;
+  });
 
   options.unauthorizedStatusCode = options.unauthorizedStatusCode || 401;
-  options.unauthorizedJson = options.unauthorizedJson || (() => {
-      return Promise.resolve(null);
-    });
+  options.unauthorizedJson = options.unauthorizedJson || (async () => {
+    return null;
+  });
 
-  const baseUrlOffset = (sapi.baseUrl) ? sapi.baseUrl.length : 0;
+  options.badRequestStatusCode = options.badRequestStatusCode || 400;
+  options.badRequestJson = options.badRequestJson || (async () => {
+    return null;
+  });
 
-  function jwtAudienceHandler(req: Request, res: Response, next: NextFunction) {
-    const authHeader = req.get(options.authHeader || 'Authorization');
-    const reqAuth = !isExcludedRoute(options, baseUrlOffset, req, res);
-
-    if (!authHeader && reqAuth) {
-      sendUnauthorized(options, req, res, next);
-      return;
-    }
-
-    const authHeaderParts = (authHeader)
-      ? authHeader.split(' ')
-      : [];
+  async function jwtAudienceHandler(req: Request, res: Response): Promise<AuthenticatorPluginResult> {
 
     let token;
-    if (options.authScheme === '' || authHeaderParts.length === 1) {
-      // no auth scheme
-      if (authHeader === options.authScheme && reqAuth) {
-        // auth scheme was provided with no token
-        sendUnauthorized(options, req, res, next);
-        return;
+
+    try {
+      const authHeader = req.get(options.authHeader || 'Authorization');
+
+      if (!authHeader) {
+        const authHeaderErr = new Error('NOT_AUTH_HEADER');
+        return {
+          data: await options.badRequestJson(authHeaderErr, req, res),
+          error: authHeaderErr,
+          status: options.badRequestStatusCode,
+          success: false
+        } as AuthenticatorPluginResult;
       }
 
-      token = authHeader;
-    } else if (authHeaderParts.length === 2) {
-      // with auth scheme
+      const authHeaderParts = (authHeader)
+        ? authHeader.split(' ')
+        : [];
 
-      if (authHeaderParts[0].toLowerCase() !== options.authScheme.toLowerCase() && reqAuth) {
-        // auth scheme doesn't match expected
-        sendUnauthorized(options, req, res, next);
-        return;
-      }
+      if (options.authScheme === '' || authHeaderParts.length === 1) {
+        // no auth scheme
+        if (authHeader === options.authScheme) {
+          // auth scheme was provided with no token
+          const missingAuthTokenErr = new Error('NO_AUTH_TOKEN');
+          return {
+            data: await options.badRequestJson(missingAuthTokenErr, req, res),
+            error: missingAuthTokenErr,
+            status: options.badRequestStatusCode,
+            success: false
+          } as AuthenticatorPluginResult;
+        }
 
-      token = authHeaderParts[1];
-    } else {
-      // auth header has unexpected content
-      if (reqAuth) {
-        sendUnauthorized(options, req, res, next);
-        return;
+        token = authHeader;
+      } else if (authHeaderParts.length === 2) {
+        // with auth scheme
+        if (authHeaderParts[0].toLowerCase() !== options.authScheme.toLowerCase()) {
+          // auth scheme doesn't match expected
+          const unexpectedAuthSchemeErr = new Error('UNEXPECTED_AUTH_SCHEME');
+          return {
+            data: await options.badRequestJson(unexpectedAuthSchemeErr, req, res),
+            error: unexpectedAuthSchemeErr,
+            status: options.badRequestStatusCode,
+            success: false
+          } as AuthenticatorPluginResult;
+        }
+        token = authHeaderParts[1];
+      } else {
+        // auth header has unexpected content
+        const unexpectedAuthHeaderContentErr = new Error('UNEXPECTED_AUTH_HEADER_CONTENT');
+        return {
+          data: await options.badRequestJson(unexpectedAuthHeaderContentErr, req, res),
+          error: unexpectedAuthHeaderContentErr,
+          status: options.badRequestStatusCode,
+          success: false
+        } as AuthenticatorPluginResult;
+
       }
+    } catch (err) {
+      return {
+        data: await options.serverErrorJson(err, req, res),
+        error: err,
+        status: options.serverErrorStatusCode,
+        success: false
+      } as AuthenticatorPluginResult;
     }
 
-    new Promise(
-      (resolve, reject) => {
-        verify(token, options.key, options.jwtVerifyOptions, (err, payload) => {
-          (err && reqAuth)
-            ? reject(err)
-            : resolve(payload);
-        });
-      })
-      .then((payload) => {
-        options
-          .onAuthorized(payload, req, res)
-          .then(() => next())
-          .catch((err) => {
-            options
-              .serverErrorJson(err, req, res)
-              .then((errJson) => {
-                res
-                  .status(options.serverErrorStatusCode)
-                  .json(errJson);
-                if (options.nextOnError) {
-                  next(errJson);
-                }
-              })
-              .catch((unexpectedError) => {
-                if (options.nextOnError) {
-                  next(unexpectedError);
-                }
-              });
-          });
-      })
-      .catch((err) => {
-        if (options.onVerifyError) {
-          options
-            .onVerifyError(err, token, req, res)
-            .then(() => next())
-            .catch(() => {
-              sendUnauthorized(options, req, res, next);
-            });
-        } else {
-          sendUnauthorized(options, req, res, next);
-        }
-      });
+    try {
+      const payload = await verifyJwt(token, options.key, options.jwtVerifyOptions);
+
+      return {
+        data: await options.onAuthorized(payload, req, res),
+        // this shouldn't matter since SakuraApi will call next() to move to the next handler if
+        // authentication succeeds
+        status: 200,
+        success: true
+      };
+
+    } catch (err) {
+      return {
+        data: await options.onVerifyError(err, token, req, res),
+        error: err,
+        status: options.unauthorizedStatusCode,
+        success: false
+      } as AuthenticatorPluginResult;
+    }
   }
 
+  const authenticators: IAuthenticator[] = [
+    new AuthAudience([jwtAudienceHandler])
+  ];
+
   return {
-    middlewareHandlers: [jwtAudienceHandler]
+    authenticators
   };
 }
 
-function isExcludedRoute(options, baseUrlOffset: number, req: Request, res: Response) {
-
-  if (!options.excludedRoutes) {
-    return false;
-  }
-
-  const path = req.originalUrl.split('?')[0].substring(baseUrlOffset);
-
-  let result = false;
-  for (const regex of options.excludedRoutes) {
-    if (regex instanceof RegExp) {
-      if (regex.test(path)) {
-        result = true;
-        break;
-      }
-      continue;
-    }
-
-    if (!regex.method || (regex.method[req.method])) {
-      if (regex.regex.test(path)) {
-        result = true;
-        break;
-      }
-      continue;
-    }
-  }
-
-  return result;
-}
-
-function sendUnauthorized(options, req, res, next) {
-  options
-    .unauthorizedJson(req, res)
-    .then((json) => {
-      res
-        .status(options.unauthorizedStatusCode)
-        .json(json);
-      if (options.nextOnError) {
-        next();
-      }
-    })
-    .catch((err) => {
-      options
-        .serverErrorJson(err, req, res)
-        .then((errJson) => {
-          res
-            .status(options.serverErrorStatusCode)
-            .json(errJson);
-          if (options.nextOnError) {
-            next(errJson);
-          }
-        });
+function verifyJwt(token, key, jwtVerifyOptions): Promise<any> {
+  return new Promise((resolve, reject) => {
+    verify(token, key, jwtVerifyOptions, (err, payload) => {
+      (err) ? reject(err) : resolve(payload);
     });
+  });
 }
