@@ -3,6 +3,7 @@ import {
   AuthenticatorPlugin,
   AuthenticatorPluginResult,
   IAuthenticator,
+  IAuthenticatorConstructor,
   SakuraApi,
   SakuraApiPluginResult
 }               from '@sakuraapi/api';

@@ -1,4 +1,5 @@
-import {IAuthenticator} from '@sakuraapi/api/lib/src/core/plugins';
+// tslint:disable:no-duplicate-imports
+import {IAuthenticator} from '@sakuraapi/api';
 import * as express     from 'express';
 import {
   NextFunction,
@@ -11,6 +12,7 @@ import {
   addAuthAudience,
   IAuthAudienceOptions
 }                       from './audience-handler';
+// tslint:enable:no-duplicate-imports
 
 describe('jwtAudienceHandler', () => {
 
