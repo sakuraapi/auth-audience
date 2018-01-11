@@ -59,15 +59,14 @@ describe('jwtAudienceHandler', () => {
     return app;
   }
 
-  it('returns 400 without a valid token', async (done) => {
+  it('returns 401 with no Authorization header (#7)', async (done) => {
 
     const result = await request(setupTestApp())
       .get('/')
-      .expect(400)
+      .expect(401)
       .catch(done.fail);
 
     const body = (result as any).body;
-
     expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
     done();
   });
@@ -83,6 +82,19 @@ describe('jwtAudienceHandler', () => {
     const result = await request(setupTestApp())
       .get('/')
       .set('Authorization', `Bearer ${token}`)
+      .expect(401)
+      .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
+    done();
+  });
+
+  it('returns 401 when token is invalid', async (done) => {
+    const result = await request(setupTestApp())
+      .get('/')
+      .set('Authorization', `Bearer 123`)
       .expect(401)
       .catch(done.fail);
 
@@ -155,6 +167,19 @@ describe('jwtAudienceHandler', () => {
     expect(body.jwt.aud).toBe(payload.aud);
     expect(body.jwt.iss).toBe(payload.iss);
     expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
+    done();
+  });
+
+  it('returns 401 when token is invalid and no auth scheme set', async (done) => {
+    const result = await request(setupTestApp())
+      .get('/')
+      .set('Authorization', `123`)
+      .expect(401)
+      .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
     done();
   });
 });
