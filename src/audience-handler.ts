@@ -194,11 +194,13 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
       const authHeader = req.get(options.authHeader || 'Authorization');
 
       if (!authHeader) {
-        const authHeaderErr = new Error('NOT_AUTH_HEADER');
+        const err = Error('NO_AUTHORIZATION_HEADER');
+        token = '';
+
         return {
-          data: await options.badRequestJson(authHeaderErr, req, res),
-          error: authHeaderErr,
-          status: options.badRequestStatusCode,
+          data: await options.onVerifyError(err, token, req, res),
+          error: err,
+          status: options.unauthorizedStatusCode,
           success: false
         } as AuthenticatorPluginResult;
       }
