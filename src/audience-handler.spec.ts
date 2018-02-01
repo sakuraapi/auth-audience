@@ -1,5 +1,5 @@
 // tslint:disable:no-duplicate-imports
-import {IAuthenticator} from '@sakuraapi/api';
+import {IAuthenticator} from '@sakuraapi/core';
 import * as express     from 'express';
 import {
   NextFunction,

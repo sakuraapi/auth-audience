@@ -6,7 +6,7 @@ import {
   IAuthenticatorConstructor,
   SakuraApi,
   SakuraApiPluginResult
-}               from '@sakuraapi/api';
+}               from '@sakuraapi/core';
 import {
   Request,
   Response
