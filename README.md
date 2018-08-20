@@ -48,6 +48,25 @@ The key is the shared secret with the issuer. It's a 32 character key. Remember,
 
 This shouldn't need to be stated: don't commit your production private keys to your repo. Instead, inject them during deployment. How you do this is beyond the scope of this readme. This, by the way, is why you don't provide your key via the `authOptions` above. By putting it in your config files, you're able to create a config file for production that takes an environmental variable instead of having the key hard coded.
 
+## domained Audience
+There will be times when in a multi tenanted environment when you will want to have a server authenticate on those different domains.  Each domain will have the 3-tuple of `audience`-`issuer`-`key`.  This auth-audience plugin is able to handle multiple domains (i.e., depending on the domain in the JWT, determining if the audience is supported and if the JWT signs correctly with the secret key for that audience given the domain)
+```
+   jwt: {
+       domainedAudiences: {
+           "field": {
+               audience: "audience1.somedomain.somewhere",
+               issuer: "issuer1.somedomain.somewhere",
+               key: "123"
+           },
+           "default": {
+               audience: "audience2.somedomain.somewhere",
+               issuer: "issuer2.somedomain.somewhere",
+               key: "456"
+           }
+       }
+   }
+   ```
+   
 # Use
 `auth-audience` exports `AuthAudience`. This can be used on your `@Routable` api calsses.
 
