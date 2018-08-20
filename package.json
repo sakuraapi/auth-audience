@@ -1,6 +1,6 @@
 {
   "name": "@sakuraapi/auth-audience",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Middleware to support JWT audience role for SakuraApi servers",
   "main": "lib/index.js",
   "types": "lib/index.d.js",
@@ -52,6 +52,7 @@
     "@types/supertest": "^2.0.5",
     "@types/urlsafe-base64": "^1.0.28",
     "@types/uuid": "^3.4.3",
+    "express": "^4.16.3",
     "istanbul": "^0.4.5",
     "jasmine": "^3.2.0",
     "jasmine-spec-reporter": "^4.2.1",
@@ -62,12 +63,12 @@
   },
   "dependencies": {
     "colors": "^1.3.1",
-    "express": "^4.16.3",
     "jsonwebtoken": "^8.3.0",
     "urlsafe-base64": "^1.0.0",
     "uuid": "^3.3.2"
   },
   "peerDependencies": {
-    "@sakuraapi/core": "0.19.x"
+    "@sakuraapi/core": "0.19.x",
+    "express": "4.x"
   }
 }
