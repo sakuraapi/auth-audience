@@ -6,23 +6,32 @@ import {
   IAuthenticatorConstructor,
   SakuraApi,
   SakuraApiPluginResult
-}               from '@sakuraapi/core';
-import {
-  Request,
-  Response
-}               from 'express';
-import {verify} from 'jsonwebtoken';
+} from '@sakuraapi/core';
+import * as debugInit from 'debug';
+import {Request, Response} from 'express';
+import {decode, verify} from 'jsonwebtoken';
 
 export type jsonBuilder = (req: Request, res: Response) => Promise<any>;
 export type jsonErrBuilder = (err: any, req: Request, res: Response) => Promise<any>;
 export type authorizedHandler = (jwtPayload: any, req: Request, res: Response) => Promise<any>;
 export type verifyErrorHandler = (err: Error, jwtPayload: any, req: Request, res: Response) => Promise<any>;
 
+const debug = debugInit('auth-audience:handler');
+
+/**
+ * interface used by domainedAudiences
+ */
+export interface IAudiences {
+  [domain: string]: {
+    [server: string]: string
+  };
+}
+
 export interface IAuthAudienceOptions {
   /**
    * The expected audience to verify; Leave undefined to not check
    */
-  audience?: string;
+  audience?: string | string[];
 
   /**
    * The header from which to get the token
@@ -38,6 +47,16 @@ export interface IAuthAudienceOptions {
    * The issuer expected; Leave undefined to not check
    */
   issuer?: string;
+
+  /**
+   * The a dictionary of domains and their keys
+   */
+  domainedAudiences?: IAudiences;
+
+  /**
+   * the expiration time on the key
+   */
+  exp?: string;
 
   /**
    * See: https://github.com/auth0/node-jsonwebtoken#jwtverifytoken-secretorpublickey-options-callback
@@ -122,7 +141,7 @@ export class AuthAudience implements IAuthenticator, IAuthenticatorConstructor {
    * @returns {Promise<AuthenticatorPluginResult>}
    */
   async authenticate(req, res): Promise<AuthenticatorPluginResult> {
-
+    debug('.authenticate called');
     let firstFailure: AuthenticatorPluginResult;
 
     for (const auth of this.authenticators) {
@@ -140,11 +159,13 @@ export class AuthAudience implements IAuthenticator, IAuthenticatorConstructor {
 }
 
 export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions): SakuraApiPluginResult {
+  debug('.addAuthAudience called');
   options = options || {} as IAuthAudienceOptions;
 
   options.audience = options.audience
     || ((sapi.config.authentication || {} as any).jwt || {} as any).audience
     || undefined;
+  debug('options.audience ', options.audience);
 
   options.authHeader = options.authHeader || 'Authorization';
 
@@ -153,11 +174,11 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
   options.issuer = options.issuer
     || ((sapi.config.authentication || {} as any).jwt || {} as any).issuer
     || undefined;
-
   options.jwtVerifyOptions = options.jwtVerifyOptions || {
     audience: options.audience,
     issuer: options.issuer
   };
+  debug('options.jwtVerifyOptions ', options.jwtVerifyOptions);
 
   options.key = options.key
     || (((sapi.config || {} as any).authentication || {} as any).jwt || {} as any).key
@@ -187,7 +208,7 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
   });
 
   async function jwtAudienceHandler(req: Request, res: Response): Promise<AuthenticatorPluginResult> {
-
+    debug('.jwtAudienceHandler called');
     let token;
 
     try {
@@ -236,6 +257,7 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
           } as AuthenticatorPluginResult;
         }
         token = authHeaderParts[1];
+
       } else {
         // auth header has unexpected content
         const unexpectedAuthHeaderContentErr = new Error('UNEXPECTED_AUTH_HEADER_CONTENT');
@@ -257,7 +279,26 @@ export function addAuthAudience(sapi: SakuraApi, options: IAuthAudienceOptions):
     }
 
     try {
-      const payload = await verifyJwt(token, options.key, options.jwtVerifyOptions);
+      // if doing multi domain config, decode token, look at domain field and set the jwtVerifyOptions to that domain's config
+      let key = options.key;
+      const jwtVerifyOptions = options.jwtVerifyOptions;
+      if (options.domainedAudiences) {
+        const decodedToken = decode(token, {json: true});
+        // tslint:disable-next-line:no-string-literal
+        let domain = decodedToken['domain'];
+        // the default domain may not send a domain in the token.  In that case, the domain is set to default if empty
+        if (!domain) {
+          domain = 'default';
+        }
+        if (domain && options.domainedAudiences[domain]) {
+          // tslint:disable:no-string-literal
+          jwtVerifyOptions.audience = options.domainedAudiences[domain]['audience'];
+          jwtVerifyOptions.issuer = options.domainedAudiences[domain]['issuer'];
+          key = options.domainedAudiences[domain]['key'];
+          // tslint:enable:no-string-literal
+        }
+      }
+      const payload = await verifyJwt(token, key, jwtVerifyOptions);
 
       return {
         data: await options.onAuthorized(payload, req, res),
