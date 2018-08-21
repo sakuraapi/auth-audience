@@ -47,8 +47,6 @@ describe('jwtAudienceHandler', () => {
 
     const authAudience: IAuthenticator = addAuthAudience(mockSapi, opt).authenticators[0];
 
-    // console.log(authAudience);
-
     app.use(getMockHandler((authAudience)));
     app.get('*', (req, res, next) => {
       res.status(200).json({
