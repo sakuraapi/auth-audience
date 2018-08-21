@@ -1,17 +1,17 @@
 // tslint:disable:no-duplicate-imports
-import {IAuthenticator} from '@sakuraapi/core';
-import * as express     from 'express';
+import { IAuthenticator } from '@sakuraapi/core';
+import * as express       from 'express';
 import {
   NextFunction,
   Request,
   Response
-}                       from 'express';
-import {sign}           from 'jsonwebtoken';
-import * as request     from 'supertest';
+}                         from 'express';
+import { sign }           from 'jsonwebtoken';
+import * as request       from 'supertest';
 import {
   addAuthAudience,
   IAuthAudienceOptions
-}                       from './audience-handler';
+}                         from './audience-handler';
 // tslint:enable:no-duplicate-imports
 
 describe('jwtAudienceHandler', () => {
@@ -21,7 +21,7 @@ describe('jwtAudienceHandler', () => {
   } as any;
 
   const options: IAuthAudienceOptions = {
-    audience: 'testAudience',
+    audience: ['testAudience1', 'testAudience2'],
     issuer: 'testIssuer',
     key: '1234'
   };
@@ -46,6 +46,8 @@ describe('jwtAudienceHandler', () => {
     const app = express();
 
     const authAudience: IAuthenticator = addAuthAudience(mockSapi, opt).authenticators[0];
+
+    // console.log(authAudience);
 
     app.use(getMockHandler((authAudience)));
     app.get('*', (req, res, next) => {
@@ -140,7 +142,7 @@ describe('jwtAudienceHandler', () => {
 
     const body = (result as any).body;
 
-    expect(body.jwt.aud).toBe(payload.aud);
+    expect(body.jwt.aud).toEqual(payload.aud);
     expect(body.jwt.iss).toBe(payload.iss);
     expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
 
@@ -164,7 +166,7 @@ describe('jwtAudienceHandler', () => {
 
     const body = (result as any).body;
 
-    expect(body.jwt.aud).toBe(payload.aud);
+    expect(body.jwt.aud).toEqual(payload.aud);
     expect(body.jwt.iss).toBe(payload.iss);
     expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
     done();
