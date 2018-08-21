@@ -23,7 +23,6 @@ export interface IAuthAudienceOptions {
    * The expected audience to verify; Leave undefined to not check
    */
   audience?: string | string[];
-
   /**
    * The header from which to get the token
    */
