@@ -6,12 +6,12 @@ import {
   IAuthenticatorConstructor,
   SakuraApi,
   SakuraApiPluginResult
-}               from '@sakuraapi/core';
+}                 from '@sakuraapi/core';
 import {
   Request,
   Response
-}               from 'express';
-import {verify} from 'jsonwebtoken';
+}                 from 'express';
+import { verify } from 'jsonwebtoken';
 
 export type jsonBuilder = (req: Request, res: Response) => Promise<any>;
 export type jsonErrBuilder = (err: any, req: Request, res: Response) => Promise<any>;
@@ -22,7 +22,7 @@ export interface IAuthAudienceOptions {
   /**
    * The expected audience to verify; Leave undefined to not check
    */
-  audience?: string;
+  audience?: string | string[];
 
   /**
    * The header from which to get the token
