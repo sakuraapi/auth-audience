@@ -1,17 +1,17 @@
 // tslint:disable:no-duplicate-imports
-import {IAuthenticator} from '@sakuraapi/core';
-import * as express     from 'express';
+import { IAuthenticator } from '@sakuraapi/core';
+import * as express       from 'express';
 import {
   NextFunction,
   Request,
   Response
-}                       from 'express';
-import {sign}           from 'jsonwebtoken';
-import * as request     from 'supertest';
+}                         from 'express';
+import { sign }           from 'jsonwebtoken';
+import * as request       from 'supertest';
 import {
   addAuthAudience,
   IAuthAudienceOptions
-}                       from './audience-handler';
+}                         from './audience-handler';
 // tslint:enable:no-duplicate-imports
 
 describe('jwtAudienceHandler', () => {
@@ -21,7 +21,13 @@ describe('jwtAudienceHandler', () => {
   } as any;
 
   const options: IAuthAudienceOptions = {
-    audience: 'testAudience',
+    audience: 'testAudience1',
+    issuer: 'testIssuer',
+    key: '1234'
+  };
+
+  const arrayAudienceOptions: IAuthAudienceOptions = {
+    audience: ['testAudience1', 'testAudience2'],
     issuer: 'testIssuer',
     key: '1234'
   };
@@ -180,6 +186,53 @@ describe('jwtAudienceHandler', () => {
     const body = (result as any).body;
 
     expect(body.fallthrough).not.toBeDefined('Auth should not have gotten here');
+    done();
+  });
+
+  it('injects jtw token into res.locals.jwt by default when valid auth with audience as array ', async (done) => {
+
+    const payload = {
+      aud: arrayAudienceOptions.audience,
+      iss: arrayAudienceOptions.issuer,
+      tokenInjected: true
+    };
+    const token = sign(payload, options.key);
+
+    const result = await request(setupTestApp())
+      .get('/')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200)
+      .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.jwt.aud).toEqual(payload.aud);
+    expect(body.jwt.iss).toBe(payload.iss);
+    expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
+
+    done();
+  });
+
+  it('supports having no auth scheme set with audience as array', async (done) => {
+
+    const payload = {
+      aud: arrayAudienceOptions.audience,
+      iss: arrayAudienceOptions.issuer,
+      tokenInjected: true
+    };
+    const token = sign(payload, options.key);
+
+    const result = await request(setupTestApp({authScheme: ''}))
+      .get('/')
+      .set('Authorization', `${token}`)
+      .expect(200)
+      .catch(done.fail);
+
+    const body = (result as any).body;
+
+    expect(body.jwt.aud).toEqual(payload.aud);
+    expect(body.jwt.iss).toBe(payload.iss);
+    expect(body.jwt.tokenInjected).toBe(payload.tokenInjected);
     done();
   });
 });
